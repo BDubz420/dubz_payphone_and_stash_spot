@@ -43,15 +43,44 @@ local function unregisterStash(ent)
     refreshStashNumbers()
 end
 
+local function subMaterialsMatch(a, b)
+    if (not a) and (not b) then return true end
+    if (not a) or (not b) then return false end
+    if table.Count(a) ~= table.Count(b) then return false end
+
+    for idx, mat in pairs(a) do
+        if b[idx] ~= mat then
+            return false
+        end
+    end
+
+    return true
+end
+
 local function canStack(a, b)
     if not (a and b) then return false end
     if a.class ~= b.class or a.model ~= b.model or a.itemType ~= b.itemType then return false end
+    if a.material ~= b.material then return false end
+    if not subMaterialsMatch(a.subMaterials, b.subMaterials) then return false end
     if (a.weaponClass or b.weaponClass) and a.weaponClass ~= b.weaponClass then return false end
+    if a.entState or b.entState then return false end -- unique entity state shouldn't stack
     return true
+end
+
+local function sanitizeItem(data)
+    if not data then return nil end
+    local copy = table.Copy(data)
+    copy.quantity = math.max(tonumber(copy.quantity) or 1, 1)
+    copy.name = copy.name or copy.class or "Item"
+    copy.model = copy.model or ""
+    copy.itemType = copy.itemType or "entity"
+    return copy
 end
 
 local function addItem(ent, data)
     if not (IsValid(ent) and data and data.class) then return false end
+    data = sanitizeItem(data)
+    if not data then return false end
     ent.StoredItems = ent.StoredItems or {}
 
     for _, stored in ipairs(ent.StoredItems) do
@@ -64,7 +93,6 @@ local function addItem(ent, data)
 
     if #ent.StoredItems >= MAX_ITEMS then return false end
 
-    data.quantity = data.quantity or 1
     ent.StoredItems[#ent.StoredItems + 1] = data
     ent:SetItemCount(#ent.StoredItems)
     return true

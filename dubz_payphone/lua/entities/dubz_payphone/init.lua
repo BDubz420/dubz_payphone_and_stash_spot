@@ -113,7 +113,12 @@ net.Receive("Payphone_TriggerAction", function(_, ply)
     local id  = net.ReadUInt(8)
     local ent = net.ReadEntity()
 
-    if not IsValid(ent) then return end
+    if not (IsValid(ent) and ent:GetClass() == "dubz_payphone") then return end
+
+    local maxDist = 200 * 200
+    if ent:GetPos():DistToSqr(ply:GetPos()) > maxDist then
+        return
+    end
 
     local action = getActionData(id)
     if not action then return end

@@ -74,11 +74,11 @@ local function buildInventory(container, items)
     local tileW, tileH, spacing = 92, 110, 8
     local framePad, headerH = 12, 46
 
-    local capacity = math.max(#items, 1)
+    local maxSlots = math.max(config.MaxStashItems or #items, #items, 1)
     local availableWidth = ScrW() - 80 - (framePad * 2)
     local maxCols = math.max(3, math.floor((availableWidth + spacing) / (tileW + spacing)))
-    local cols = math.Clamp(capacity, 1, maxCols)
-    local rows = math.max(1, math.ceil(capacity / cols))
+    local cols = math.Clamp(maxSlots, 1, maxCols)
+    local rows = math.max(1, math.ceil(maxSlots / cols))
     local gridW = cols * tileW + (cols - 1) * spacing
     local gridH = rows * tileH + (rows - 1) * spacing
 
@@ -115,7 +115,7 @@ local function buildInventory(container, items)
     label:SetSize(180, 16)
     label:SetFont("DubzStash_Small")
     label:SetTextColor(Color(200, 200, 200))
-    label:SetText(string.format("%d item slots", #items))
+    label:SetText(string.format("%d / %d slots", #items, maxSlots))
 
     local gridWrap = vgui.Create("DPanel", frame)
     gridWrap:SetSize(gridW, gridH)
