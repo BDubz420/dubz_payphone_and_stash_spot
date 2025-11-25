@@ -17,8 +17,7 @@ net.Receive("Payphone_OpenMenu", function()
     local data  = net.ReadString()
     if not IsValid(ent) then return end
 
-    local config = util.JSONToTable(data)
-    if not config then return end
+    local config = util.JSONToTable(data or "") or {}
 
     -----------------------------------------------------
     -- FRAME (DubzStyle 2)
@@ -72,6 +71,18 @@ net.Receive("Payphone_OpenMenu", function()
     -----------------------------------------------------
     -- ACTION BUTTONS
     -----------------------------------------------------
+    local function priceLabel(action)
+        local cost = action.cost or {}
+        local parts = {}
+        if cost.clean and cost.clean > 0 then
+            parts[#parts + 1] = string.format("$%s clean", string.Comma(math.floor(cost.clean)))
+        end
+        if cost.dirty and cost.dirty > 0 then
+            parts[#parts + 1] = string.format("$%s dirty", string.Comma(math.floor(cost.dirty)))
+        end
+        return table.concat(parts, " | ")
+    end
+
     for id, action in ipairs(config) do
         local btn = scroll:Add("DButton")
         btn:Dock(TOP)
@@ -85,6 +96,10 @@ net.Receive("Payphone_OpenMenu", function()
             draw.SimpleText(action.name, "DubzUI_Button", 15, 10, Color(255,255,255))
             draw.SimpleText(action.description, "DubzUI_Button", 15, 28, Color(180,180,180))
             draw.SimpleText(string.format("Delivery ~%ds", action.deliveryTime or 0), "DubzUI_Button", w - 20, 10, Color(0, 180, 120), TEXT_ALIGN_RIGHT)
+            local price = priceLabel(action)
+            if price ~= "" then
+                draw.SimpleText(price, "DubzUI_Button", w - 20, 32, Color(255, 200, 60), TEXT_ALIGN_RIGHT)
+            end
         end
 
         btn.DoClick = function()

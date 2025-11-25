@@ -30,7 +30,7 @@ net.Receive("DubzStash_MarkerClear", function(_, ply)
     clearMarker(ply, id)
 end)
 
-local function deliverToStash(ply, stash, items, delay)
+local function deliverToStash(ply, stash, items, delay, cost)
     if not IsValid(stash) then
         ply:ChatPrint("[Stash] No stash spot found!")
         return
@@ -44,7 +44,7 @@ local function deliverToStash(ply, stash, items, delay)
     timer.Simple(wait, function()
         if not (IsValid(stash) and IsValid(ply)) then return end
 
-        local added = stash:AddDelivery(items)
+        local added = stash:AddDelivery(items, cost)
         clearMarker(ply, stash:GetStashId())
 
         if added <= 0 then
@@ -64,14 +64,26 @@ end
 -- Payphone Actions
 -----------------------------------------------------
 local function sanitizeOptions()
+    config = (DUBZ_PAYPHONE and DUBZ_PAYPHONE.Config) or config or {}
     local options = {}
     for _, data in ipairs(config.Options or {}) do
         options[#options + 1] = {
             name = data.name or "Action",
             description = data.description or "",
-            deliveryTime = data.deliveryTime or config.DeliveryTime or 120
+            deliveryTime = data.deliveryTime or config.DeliveryTime or 120,
+            cost = data.cost or { clean = 0, dirty = 0 }
         }
     end
+
+    if #options <= 0 then
+        options[1] = {
+            name = "No services configured",
+            description = "Set DUBZ_PAYPHONE.Config.Options to add buttons.",
+            deliveryTime = config.DeliveryTime or 120,
+            cost = { clean = 0, dirty = 0 }
+        }
+    end
+
     return options
 end
 
@@ -99,10 +111,16 @@ end
 -- Open Menu
 -----------------------------------------------------
 function ENT:Use(ply)
-    if not IsValid(ply) then return end
+    if not (IsValid(ply) and ply:IsPlayer()) then return end
+
+    config = (DUBZ_PAYPHONE and DUBZ_PAYPHONE.Config) or config or {}
+
+    -- Refresh config so live changes propagate without a map restart
+    self:SetMenuConfig(util.TableToJSON(sanitizeOptions()))
+
     net.Start("Payphone_OpenMenu")
         net.WriteEntity(self)
-        net.WriteString(self:GetMenuConfig())
+        net.WriteString(self:GetMenuConfig() or "[]")
     net.Send(ply)
 end
 
@@ -115,6 +133,8 @@ net.Receive("Payphone_TriggerAction", function(_, ply)
 
     if not (IsValid(ent) and ent:GetClass() == "dubz_payphone") then return end
 
+    config = (DUBZ_PAYPHONE and DUBZ_PAYPHONE.Config) or config or {}
+
     local maxDist = 200 * 200
     if ent:GetPos():DistToSqr(ply:GetPos()) > maxDist then
         return
@@ -122,6 +142,10 @@ net.Receive("Payphone_TriggerAction", function(_, ply)
 
     local action = getActionData(id)
     if not action then return end
+
+    if isfunction(action.onSelect) then
+        action.onSelect(ply)
+    end
 
     local stash = DUBZ_PAYPHONE.GetRandomStash()
     if not IsValid(stash) then
@@ -134,5 +158,5 @@ net.Receive("Payphone_TriggerAction", function(_, ply)
         items[#items + 1] = table.Copy(data)
     end
 
-    deliverToStash(ply, stash, items, action.deliveryTime)
+    deliverToStash(ply, stash, items, action.deliveryTime, action.cost)
 end)

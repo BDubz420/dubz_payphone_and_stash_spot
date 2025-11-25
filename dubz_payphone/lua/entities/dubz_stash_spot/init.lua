@@ -3,12 +3,14 @@ include("shared.lua")
 
 util.AddNetworkString("DubzStash_Open")
 util.AddNetworkString("DubzStash_Action")
+util.AddNetworkString("DubzStash_Pay")
 util.AddNetworkString("DubzStash_MarkerStart")
 util.AddNetworkString("DubzStash_MarkerClear")
 
 DUBZ_PAYPHONE = DUBZ_PAYPHONE or {}
 local config = (DUBZ_PAYPHONE and DUBZ_PAYPHONE.Config) or {}
 local MAX_ITEMS = config.MaxStashItems or 40
+local currencies = config.Currencies or {}
 
 DUBZ_PAYPHONE.ActiveStashSpots = DUBZ_PAYPHONE.ActiveStashSpots or {}
 
@@ -75,6 +77,43 @@ local function sanitizeItem(data)
     copy.model = copy.model or ""
     copy.itemType = copy.itemType or "entity"
     return copy
+end
+
+local function normalizeCost(cost)
+    local prices = { clean = 0, dirty = 0 }
+    if istable(cost) then
+        prices.clean = math.max(tonumber(cost.clean) or 0, 0)
+        prices.dirty = math.max(tonumber(cost.dirty) or 0, 0)
+    elseif tonumber(cost) then
+        prices.clean = math.max(tonumber(cost) or 0, 0)
+    end
+    return prices
+end
+
+local function copyCharges(tbl)
+    return {
+        clean = math.max(tonumber(tbl.clean) or 0, 0),
+        dirty = math.max(tonumber(tbl.dirty) or 0, 0)
+    }
+end
+
+local function getCurrency(id)
+    return currencies[id] or {}
+end
+
+local function canPay(ply, currencyId, amount)
+    local info = getCurrency(currencyId)
+    if not info.canAfford then return false end
+    return amount <= 0 or info.canAfford(ply, amount)
+end
+
+local function chargePlayer(ply, currencyId, amount)
+    local info = getCurrency(currencyId)
+    if not (info.charge and info.canAfford) then return false end
+    if amount <= 0 then return true end
+    if not info.canAfford(ply, amount) then return false end
+    info.charge(ply, amount)
+    return true
 end
 
 local function addItem(ent, data)
@@ -228,6 +267,7 @@ function ENT:Initialize()
     if IsValid(phys) then phys:Wake() end
 
     self.StoredItems = self.StoredItems or {}
+    self.PendingCharges = copyCharges(self.PendingCharges or { clean = 0, dirty = 0 })
     self:SetItemCount(#self.StoredItems)
 
     registerStash(self)
@@ -256,6 +296,7 @@ end
 local function sendInventory(ply, ent)
     if not (IsValid(ply) and IsValid(ent)) then return end
 
+    ent.PendingCharges = copyCharges(ent.PendingCharges or { clean = 0, dirty = 0 })
     local items = ent.StoredItems or {}
 
     net.Start("DubzStash_Open")
@@ -264,11 +305,13 @@ local function sendInventory(ply, ent)
         for _, data in ipairs(items) do
             writeNetItem(data)
         end
+        net.WriteUInt(math.Clamp(ent.PendingCharges.clean or 0, 0, 262143), 18)
+        net.WriteUInt(math.Clamp(ent.PendingCharges.dirty or 0, 0, 262143), 18)
     net.Send(ply)
 end
 
 function ENT:Use(ply)
-    if not IsValid(ply) then return end
+    if not (IsValid(ply) and ply:IsPlayer()) then return end
     sendInventory(ply, self)
 end
 
@@ -279,6 +322,12 @@ net.Receive("DubzStash_Action", function(_, ply)
 
     if not IsValid(ent) then return end
     if ent:GetPos():DistToSqr(ply:GetPos()) > (200 * 200) then return end
+
+    if (ent.PendingCharges.clean or 0) > 0 or (ent.PendingCharges.dirty or 0) > 0 then
+        ply:ChatPrint("[Stash] Pay for the pending delivery before taking items.")
+        sendInventory(ply, ent)
+        return
+    end
 
     local removed = removeItem(ent, index, math.max(amount, 1))
     if not removed then return end
@@ -302,7 +351,45 @@ net.Receive("DubzStash_Action", function(_, ply)
     sendInventory(ply, ent)
 end)
 
-function ENT:AddDelivery(items)
+net.Receive("DubzStash_Pay", function(_, ply)
+    local ent      = net.ReadEntity()
+    local currency = net.ReadString()
+
+    if not IsValid(ent) then return end
+    if ent:GetPos():DistToSqr(ply:GetPos()) > (200 * 200) then return end
+
+    ent.PendingCharges = copyCharges(ent.PendingCharges or { clean = 0, dirty = 0 })
+    local due = ent.PendingCharges[currency] or 0
+    if due <= 0 then
+        sendInventory(ply, ent)
+        return
+    end
+
+    if not (getCurrency(currency).charge and getCurrency(currency).canAfford) then
+        ent.PendingCharges[currency] = 0
+        ply:ChatPrint("[Stash] Currency handler missing; clearing owed balance.")
+        sendInventory(ply, ent)
+        return
+    end
+
+    if not canPay(ply, currency, due) then
+        ply:ChatPrint(string.format("[Stash] You don't have enough %s.", currency))
+        sendInventory(ply, ent)
+        return
+    end
+
+    if not chargePlayer(ply, currency, due) then
+        ply:ChatPrint("[Stash] Payment failed.")
+        sendInventory(ply, ent)
+        return
+    end
+
+    ent.PendingCharges[currency] = 0
+    ply:ChatPrint(string.format("[Stash] Paid %s $%s.", currency, string.Comma(due)))
+    sendInventory(ply, ent)
+end)
+
+function ENT:AddDelivery(items, cost)
     if not items then return 0 end
 
     local added = 0
@@ -310,6 +397,14 @@ function ENT:AddDelivery(items)
         if addItem(self, table.Copy(data)) then
             added = added + 1
         end
+    end
+
+    if added > 0 then
+        self.PendingCharges = copyCharges(self.PendingCharges or { clean = 0, dirty = 0 })
+        local prices = normalizeCost(cost)
+        local ratio = math.min(1, added / math.max(#items, 1))
+        self.PendingCharges.clean = self.PendingCharges.clean + math.floor(prices.clean * ratio)
+        self.PendingCharges.dirty = self.PendingCharges.dirty + math.floor(prices.dirty * ratio)
     end
 
     self:SetItemCount(#self.StoredItems)

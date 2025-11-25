@@ -15,11 +15,61 @@ DUBZ_PAYPHONE.Config = {
     MarkerColor = color(25, 178, 208),
     StashModel = "models/props_vents/vent_medium_grill002.mdl",
     MaxStashItems = 40,
+
+    -- Currency handlers are intentionally basic; override these with your own
+    -- wallet functions if your gamemode uses custom money implementations.
+    Currencies = {
+        clean = {
+            label = "Clean Cash",
+            get = function(ply)
+                if ply.getDarkRPVar then return ply:getDarkRPVar("money") or 0 end
+                if ply.GetMoney then return ply:GetMoney() end
+                return ply:GetNWInt("clean_cash", 0)
+            end,
+            canAfford = function(ply, amount)
+                if ply.canAfford then return ply:canAfford(amount) end
+                return (ply.getDarkRPVar and (ply:getDarkRPVar("money") or 0) or 0) >= amount
+            end,
+            charge = function(ply, amount)
+                if ply.addMoney then ply:addMoney(-amount) return end
+                if ply.AddMoney then ply:AddMoney(-amount) return end
+                ply:SetNWInt("clean_cash", (ply:GetNWInt("clean_cash", 0) or 0) - amount)
+            end
+        },
+        dirty = {
+            label = "Dirty Cash",
+            get = function(ply)
+                return (ply.getDarkRPVar and (ply:getDarkRPVar("dirtymoney")
+                    or ply:getDarkRPVar("DirtyMoney")
+                    or ply:getDarkRPVar("dirty_money"))) or ply:GetNWInt("dirty_cash", 0)
+            end,
+            canAfford = function(ply, amount)
+                local balance = (ply.getDarkRPVar and (ply:getDarkRPVar("dirtymoney")
+                    or ply:getDarkRPVar("DirtyMoney")
+                    or ply:getDarkRPVar("dirty_money"))) or ply:GetNWInt("dirty_cash", 0)
+                return (balance or 0) >= amount
+            end,
+            charge = function(ply, amount)
+                if ply.setDarkRPVar then
+                    local balance = (ply:getDarkRPVar("dirtymoney")
+                        or ply:getDarkRPVar("DirtyMoney")
+                        or ply:getDarkRPVar("dirty_money")
+                        or 0) - amount
+                    ply:setDarkRPVar("dirtymoney", balance)
+                    return
+                end
+
+                ply:SetNWInt("dirty_cash", (ply:GetNWInt("dirty_cash", 0) or 0) - amount)
+            end
+        }
+    },
+
     Options = {
         {
             name = "Buy Coke Growing Seeds",
             description = "Order a bundle of coke seeds to your stash.",
             deliveryTime = 90,
+            cost = { clean = 2500, dirty = 1800 },
             items = {
                 {
                     class = "drug_coke_seed",
@@ -31,22 +81,47 @@ DUBZ_PAYPHONE.Config = {
             }
         },
         {
-            name = "Buy Weed Starter Pack",
+            name = "Chemist Instruction Book",
+            description = "Assign yourself as a chemist and unlock basic supplies.",
+            cost = { clean = 1000, dirty = 800 },
+            onSelect = function(ply)
+                if ply.changeTeam and RPExtraTeams then
+                    for id, job in ipairs(RPExtraTeams) do
+                        if job.command == "chemist" then
+                            ply:changeTeam(id, true)
+                            break
+                        end
+                    end
+                end
+            end,
+            items = {
+                {
+                    class = "drug_instruction_book",
+                    name = "Chemistry Handbook",
+                    model = "models/props_lab/binderredlabel.mdl",
+                    quantity = 1,
+                    itemType = "entity"
+                }
+            }
+        },
+        {
+            name = "Weed Starter Pack",
             description = "Seeds and soil delivered straight to your vent stash.",
+            cost = { clean = 1500, dirty = 1200 },
             items = {
                 {
                     class = "drug_weed_seed",
                     name = "Weed Seed",
                     model = "models/props_borealis/bluebarrel001.mdl",
                     quantity = 3,
-                    itemType = "entity"
+                    itemType = "entity",
                 },
                 {
                     class = "drug_soil_bag",
                     name = "Soil Bag",
                     model = "models/props_junk/garbage_bag001a.mdl",
                     quantity = 2,
-                    itemType = "entity"
+                    itemType = "entity",
                 }
             }
         },
@@ -54,6 +129,7 @@ DUBZ_PAYPHONE.Config = {
             name = "Request Anonymous Drop",
             description = "A random utility item shows up at a stash spot.",
             deliveryTime = 45,
+            cost = { clean = 500, dirty = 400 },
             items = {
                 {
                     class = "spawned_weapon",

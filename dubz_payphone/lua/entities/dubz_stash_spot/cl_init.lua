@@ -54,6 +54,13 @@ local function sendAction(container, index, amount)
     net.SendToServer()
 end
 
+local function sendPayment(container, currency)
+    net.Start("DubzStash_Pay")
+    net.WriteEntity(container)
+    net.WriteString(currency)
+    net.SendToServer()
+end
+
 local function applyIconMaterials(icon, data)
     if not (data and (data.material or data.subMaterials)) then return end
     timer.Simple(0, function()
@@ -70,9 +77,9 @@ local function applyIconMaterials(icon, data)
     end)
 end
 
-local function buildInventory(container, items)
+local function buildInventory(container, items, charges)
     local tileW, tileH, spacing = 92, 110, 8
-    local framePad, headerH = 12, 46
+    local framePad, headerH = 12, 70
 
     local maxSlots = math.max(config.MaxStashItems or #items, #items, 1)
     local availableWidth = ScrW() - 80 - (framePad * 2)
@@ -116,6 +123,40 @@ local function buildInventory(container, items)
     label:SetFont("DubzStash_Small")
     label:SetTextColor(Color(200, 200, 200))
     label:SetText(string.format("%d / %d slots", #items, maxSlots))
+
+    charges = charges or { clean = 0, dirty = 0 }
+    local chargePanel = vgui.Create("DPanel", frame)
+    chargePanel:SetPos(framePad + 6, framePad + 20)
+    chargePanel:SetSize(200, 22)
+    chargePanel.Paint = function(self, w, h)
+        if (charges.clean or 0) <= 0 and (charges.dirty or 0) <= 0 then
+            draw.SimpleText("No payment due", "DubzStash_Small", 0, h / 2, Color(160, 220, 160), TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+        else
+            draw.SimpleText("Pay to unlock stash", "DubzStash_Small", 0, h / 2, Color(255, 200, 80), TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+        end
+    end
+
+    local function addPayButton(key, amount, x)
+        if not amount or amount <= 0 then return x end
+        local btn = vgui.Create("DButton", frame)
+        btn:SetSize(120, 24)
+        btn:SetPos(x, framePad + 44)
+        btn:SetText(string.format("Pay %s $%s", key, string.Comma(amount)))
+        btn:SetFont("DubzStash_Small")
+        btn:SetTextColor(Color(0, 0, 0))
+        btn.Paint = function(self, w, h)
+            draw.RoundedBox(6, 0, 0, w, h, Color(255, 200, 60))
+        end
+        btn.DoClick = function()
+            sendPayment(container, key)
+            frame:Close()
+        end
+        return x + btn:GetWide() + 6
+    end
+
+    local nextX = framePad + 6
+    nextX = addPayButton("clean", charges.clean, nextX)
+    addPayButton("dirty", charges.dirty, nextX)
 
     local gridWrap = vgui.Create("DPanel", frame)
     gridWrap:SetSize(gridW, gridH)
@@ -176,8 +217,10 @@ net.Receive("DubzStash_Open", function()
     for i = 1, count do
         items[i] = readNetItem()
     end
+    local cleanDue = net.ReadUInt(18)
+    local dirtyDue = net.ReadUInt(18)
 
-    buildInventory(ent, items)
+    buildInventory(ent, items, { clean = cleanDue, dirty = dirtyDue })
 end)
 
 -- Delivery marker HUD
