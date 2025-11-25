@@ -24,7 +24,7 @@ net.Receive("Payphone_OpenMenu", function()
     -- FRAME (DubzStyle 2)
     -----------------------------------------------------
     local frame = vgui.Create("DFrame")
-    frame:SetSize(400, 450)
+    frame:SetSize(420, 480)
     frame:Center()
     frame:MakePopup()
     frame:SetTitle("")
@@ -76,14 +76,15 @@ net.Receive("Payphone_OpenMenu", function()
         local btn = scroll:Add("DButton")
         btn:Dock(TOP)
         btn:DockMargin(0, 0, 0, 10)
-        btn:SetTall(50)
+        btn:SetTall(60)
         btn:SetText("")
-        
+
         btn.Paint = function(self, w, h)
             draw.RoundedBox(6, 0, 0, w, h, Color(20,20,20))
             draw.RoundedBox(6, 0, 0, w, 2, Color(0,100,255))
             draw.SimpleText(action.name, "DubzUI_Button", 15, 10, Color(255,255,255))
             draw.SimpleText(action.description, "DubzUI_Button", 15, 28, Color(180,180,180))
+            draw.SimpleText(string.format("Delivery ~%ds", action.deliveryTime or 0), "DubzUI_Button", w - 20, 10, Color(0, 180, 120), TEXT_ALIGN_RIGHT)
         end
 
         btn.DoClick = function()
